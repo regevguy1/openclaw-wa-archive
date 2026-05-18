@@ -41,10 +41,21 @@ export function register(api: any) {
   }
 
   // 4. Register message hooks
-  // Legacy api.on hooks (backward compat — message_sent fires inconsistently for regular replies)
-  api.on('message_received', handleMessageReceived);
-  api.on('message_sent', handleMessageSent);
-  api.on('message_preprocessed', handleMessagePreprocessed);
+  // Use registerHook for reliable hook delivery across all OpenClaw versions.
+  // Legacy api.on is mapped to noopOn in newer gateway versions (2026.5.7+),
+  // so registerHook is the only reliable path for inbound message capture.
+  api.registerHook?.('message_received', handleMessageReceived, {
+    name: 'wa-archive:message-received',
+    description: 'Archive inbound messages',
+  });
+  api.registerHook?.('message_sent', handleMessageSent, {
+    name: 'wa-archive:message-sent',
+    description: 'Archive outbound messages (legacy event)',
+  });
+  api.registerHook?.('message_preprocessed', handleMessagePreprocessed, {
+    name: 'wa-archive:message-preprocessed',
+    description: 'Archive messages during preprocessing',
+  });
 
   // Plugin hooks (reliable — fires for ALL outbound including regular agent replies)
   api.registerHook?.('message_sending', handleMessageSending, {
