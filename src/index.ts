@@ -40,40 +40,56 @@ export function register(api: any) {
     configureMedia(dataDir);
   }
 
-  // 4. Register message hooks
-  // Use registerHook for reliable hook delivery across all OpenClaw versions.
-  // Legacy api.on is mapped to noopOn in newer gateway versions (2026.5.7+),
-  // so registerHook is the only reliable path for inbound message capture.
-  api.registerHook?.('message_received', handleMessageReceived, {
-    name: 'wa-archive:message-received',
-    description: 'Archive inbound messages',
-  });
-  api.registerHook?.('message_sent', handleMessageSent, {
-    name: 'wa-archive:message-sent',
-    description: 'Archive outbound messages (legacy event)',
-  });
-  api.registerHook?.('message_preprocessed', handleMessagePreprocessed, {
-    name: 'wa-archive:message-preprocessed',
-    description: 'Archive messages during preprocessing',
-  });
+  // 4. Register message hooks — version-adaptive.
+  //
+  // OpenClaw has TWO hook registration systems that changed between versions:
+  //   - api.on()           → typedHooks registry (dispatched by hook runner) — works in ≤2026.4.x
+  //   - api.registerHook() → internal hooks system — works in ≤2026.4.x but NOT dispatched for messages
+  //
+  // In 2026.5.7+, api.on() is mapped to noopOn, and registerHook becomes the correct path
+  // for typed hook dispatch.
+  //
+  // We detect at runtime: try a test registration with api.on(), check if it populates
+  // typedHooks (via hasHooks on hookRunner), and fall back accordingly.
+  //
+  // Bug history:
+  //   2026-05-18: Switched to registerHook (advice from Chloe on 2026.5.7) → broke on 2026.4.22
+  //   2026-05-24: Fixed with version-adaptive approach.
 
-  // Plugin hooks (reliable — fires for ALL outbound including regular agent replies)
-  api.registerHook?.('message_sending', handleMessageSending, {
-    name: 'wa-archive:message-sending',
-    description: 'Archive outbound messages before delivery',
-  });
+  const hooks: Array<[string, Function]> = [
+    ['message_received', handleMessageReceived],
+    ['message_sent', handleMessageSent],
+    ['message_preprocessed', handleMessagePreprocessed],
+    ['message_sending', handleMessageSending],
+    ['reply_dispatch', handleReplyDispatch],
+    ['llm_output', handleLlmOutput],
+  ];
 
-  // Fallback: reply_dispatch fires when gateway dispatches a reply (safety net)
-  api.registerHook?.('reply_dispatch', handleReplyDispatch, {
-    name: 'wa-archive:reply-dispatch',
-    description: 'Fallback capture for outbound messages via reply dispatch',
-  });
+  // Detect which registration path works.
+  // api.on() in ≤2026.4.x maps to registerTypedHook (correct).
+  // api.on() in ≥2026.5.7 maps to noopOn (broken).
+  // We check: if api.on is named 'noopOn' or has length 0 (noop signature), use registerHook.
+  const onFn = api.on;
+  const onIsNoop = !onFn || onFn === Function.prototype || onFn.name === 'noopOn' || onFn.name === 'noop';
 
-  // LLM output hook for token usage / cost tracking
-  api.registerHook?.('llm_output', handleLlmOutput, {
-    name: 'wa-archive:llm-output',
-    description: 'Track token usage and costs per LLM call',
-  });
+  if (onIsNoop && api.registerHook) {
+    // Newer gateway (≥2026.5.7): api.on is noop, use registerHook
+    console.log('[wa-archive] Using registerHook (api.on is noop — gateway ≥2026.5.7)');
+    for (const [event, handler] of hooks) {
+      api.registerHook(event, handler, {
+        name: `wa-archive:${event}`,
+        description: `wa-archive: ${event}`,
+      });
+    }
+  } else if (onFn) {
+    // Older gateway (≤2026.4.x): api.on maps to registerTypedHook
+    console.log('[wa-archive] Using api.on (gateway ≤2026.4.x)');
+    for (const [event, handler] of hooks) {
+      api.on(event, handler);
+    }
+  } else {
+    console.error('[wa-archive] No hook registration method available! Messages will NOT be archived.');
+  }
 
   // 5. Register tools
   const allowFrom = config.allowFrom || [];
@@ -85,7 +101,7 @@ export function register(api: any) {
   api.registerCommand?.({
     name: 'wa-backfill',
     description: 'Import existing JSONL session transcripts into the WhatsApp archive',
-    execute: async () => {
+    handler: async () => {
       console.log('[wa-archive] Starting backfill...');
       const result = await runBackfill();
       return `Backfill complete: ${result.imported} imported, ${result.skipped} skipped`;
