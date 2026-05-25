@@ -18,7 +18,7 @@ OpenClaw plugin that archives **all** WhatsApp messages (inbound + outbound) int
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/regevguym/openclaw-wa-archive.git
+git clone https://github.com/regevguy1/openclaw-wa-archive.git
 cd openclaw-wa-archive
 npm install
 npm run build
@@ -99,6 +99,30 @@ Get statistics about the WhatsApp message archive.
 - `sender` (string) — Filter by specific sender
 
 **Returns:** Total messages, per-chat breakdown, per-sender breakdown, busiest hours, inbound/outbound ratio.
+
+## Public X/Twitter Companion Workflow
+
+Use this plugin for private WhatsApp archive search, stats, media, and backfill.
+Add [TweetClaw](https://github.com/Xquik-dev/tweetclaw) when the same OpenClaw
+gateway also needs public X/Twitter context through the
+[@xquik/tweetclaw](https://www.npmjs.com/package/@xquik/tweetclaw) plugin.
+
+```bash
+openclaw plugins install @xquik/tweetclaw
+openclaw config set plugins.entries.tweetclaw.config.apiKey "$XQUIK_API_KEY"
+openclaw config set tools.alsoAllow '["explore", "tweetclaw"]'
+```
+
+Typical archive handoffs:
+
+- Compare private WhatsApp questions with public tweet search or reply search.
+- Attach tweet URLs or tweet IDs to follow-up notes while private chat data stays in wa-archive.
+- Search tweets, user timelines, followers, and media before posting reviewed tweet replies from OpenClaw.
+- Post tweets or post tweet replies only after the agent has reviewed the private archive context and public X/Twitter context separately.
+
+Keep Xquik API keys in local OpenClaw config or environment variables. Do not
+paste them into chat messages, archive rows, media metadata, or backfill
+transcripts.
 
 ## Backfill — Importing Historical Messages
 
@@ -210,7 +234,7 @@ openclaw-wa-archive/
 
 ### Embeddings not working
 - Check `OPENAI_API_KEY` is set in environment
-- Verify with: `echo $OPENAI_API_KEY`
+- Verify without printing the key: `test -n "$OPENAI_API_KEY" && echo "OPENAI_API_KEY is set"`
 - Run `node scripts/batch-embed.js` manually to see errors
 
 ### sqlite-vec not loading
